@@ -2,10 +2,14 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <tchar.h>
+#define HAVE_STRUCT_TIMESPEC
+#include <windows.h>
 
 #pragma comment(lib, "Ws2_32.lib")
 
 using namespace std;
+
+DWORD WINAPI handle_connection(LPVOID p_socket);
 
 int main() {
 	cout << "========= SERVER ========== \n\n";
@@ -60,33 +64,51 @@ int main() {
 		cout << "listen() is OK, I'm waiting for connections..." << endl;
 	}
 
-	acceptSocket = accept(serverSocket, NULL, NULL);
-	if (acceptSocket == INVALID_SOCKET) {
-		cout << "accept failed: " << WSAGetLastError() << endl;
-		WSACleanup();
-		return -1;
-	}
-	cout << "Accepted connection" << endl;
 
-	
+	while (true) {
+		acceptSocket = accept(serverSocket, NULL, NULL);
+		if (acceptSocket == INVALID_SOCKET) {
+			cout << "accept failed: " << WSAGetLastError() << endl;
+			WSACleanup();
+			return -1;
+		}
+		cout << "Accepted connection" << endl;
+
+
+		//handle_connection(acceptSocket);
+
+		SOCKET* p_socket = new SOCKET;
+		*p_socket = acceptSocket;
+		DWORD threadId;
+		HANDLE hdl;
+		hdl = CreateThread(NULL, 0, handle_connection, p_socket, 0, &threadId);
+
+	}
+
+	closesocket(serverSocket);
+	WSACleanup();
+	return 0;
+}
+
+
+DWORD WINAPI handle_connection(LPVOID p_socket) {
 	char buffer[200];
+	SOCKET acceptSocket = *((SOCKET*)p_socket);
+	delete p_socket;
 	while (true) {
 		int byteCount = recv(acceptSocket, buffer, 200, 0);
 
 		if (byteCount == SOCKET_ERROR) {
 			cout << "Server receive error: " << WSAGetLastError() << endl;
-			return -1;
+			return 0;
 		}
 		else {
 			cout << "Server: received " << byteCount << " bytes" << endl;
 			cout << "Client: " << buffer << endl;
 			cout << endl;
-
+				
 			if (!strcmp(buffer, "/quit")) break;
 		}
 	}
-
-	closesocket(serverSocket);
-	WSACleanup();
 	return 0;
 }
