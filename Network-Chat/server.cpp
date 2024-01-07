@@ -1,4 +1,5 @@
 #include <iostream>
+#include <string>
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <tchar.h>
@@ -9,7 +10,11 @@
 
 using namespace std;
 
+fd_set master;
+
 DWORD WINAPI handle_connection(LPVOID p_socket);
+DWORD WINAPI handle_accept(LPVOID p_socket);
+DWORD WINAPI handle_send(LPVOID p_socket);
 
 int main() {
 	cout << "========= SERVER ========== \n\n";
@@ -65,6 +70,26 @@ int main() {
 	}
 
 
+	SOCKET* p_socket = new SOCKET;
+	*p_socket = serverSocket;
+	DWORD sendThreadId, acceptThreadId;
+	HANDLE sendHdl, acceptHdl;
+	sendHdl = CreateThread(NULL, 0, handle_send, p_socket, 0, &sendThreadId);
+	acceptHdl = CreateThread(NULL, 0, handle_accept, p_socket, 0, &acceptThreadId);
+
+	HANDLE hdls[2] = { sendHdl, acceptHdl };
+
+	WaitForMultipleObjects(2, hdls, 1, INFINITE);
+
+	delete p_socket;
+
+	closesocket(serverSocket);
+	WSACleanup();
+	return 0;
+}
+
+DWORD WINAPI handle_accept(LPVOID p_server_socket) {
+	SOCKET acceptSocket = INVALID_SOCKET, serverSocket = *((SOCKET*)p_server_socket);
 	while (true) {
 		acceptSocket = accept(serverSocket, NULL, NULL);
 		if (acceptSocket == INVALID_SOCKET) {
@@ -72,43 +97,84 @@ int main() {
 			WSACleanup();
 			return -1;
 		}
-		cout << "Accepted connection" << endl;
-
-
-		//handle_connection(acceptSocket);
-
-		SOCKET* p_socket = new SOCKET;
-		*p_socket = acceptSocket;
-		DWORD threadId;
-		HANDLE hdl;
-		hdl = CreateThread(NULL, 0, handle_connection, p_socket, 0, &threadId);
+		else {
+			cout << "\rAccepted connection" << endl;
+			SOCKET* p_socket = new SOCKET;
+			*p_socket = acceptSocket;
+			DWORD threadId;
+			HANDLE hdl;
+			hdl = CreateThread(NULL, 0, handle_connection, p_socket, 0, &threadId);
+			p_socket = NULL;
+			FD_SET(acceptSocket, &master);
+		}
 
 	}
-
-	closesocket(serverSocket);
-	WSACleanup();
-	return 0;
 }
-
 
 DWORD WINAPI handle_connection(LPVOID p_socket) {
 	char buffer[200];
+	char clientUsername[50];
+
 	SOCKET acceptSocket = *((SOCKET*)p_socket);
 	delete p_socket;
+
+	int usernameLen = recv(acceptSocket, clientUsername, 50, 0);
+	clientUsername[usernameLen] = '\0';
+
+	string welcomeMessage = "\rServer: Welcome to the server ";
+	welcomeMessage = welcomeMessage + clientUsername;
+
+	for (int i = 0; i < master.fd_count; ++i) {
+		send(master.fd_array[i], welcomeMessage.c_str(), strlen(welcomeMessage.c_str()), 0);
+	}
+
+	std::cout << '\r';
+	std::cout << clientUsername << " connected" << endl;
+	std::cout << "Server: ";
+
 	while (true) {
 		int byteCount = recv(acceptSocket, buffer, 200, 0);
-
+		buffer[byteCount] = '\0';
 		if (byteCount == SOCKET_ERROR) {
-			cout << "Server receive error: " << WSAGetLastError() << endl;
+			cout << "\rServer receive error: " << WSAGetLastError() << endl;
+			FD_CLR(acceptSocket, &master);
+			return 0;
+		}
+		else if (byteCount == 0) {
+			cout << "\rA client disconnected" << endl;
+			cout << "Server: ";
 			return 0;
 		}
 		else {
-			cout << "Server: received " << byteCount << " bytes" << endl;
-			cout << "Client: " << buffer << endl;
-			cout << endl;
-				
-			if (!strcmp(buffer, "/quit")) break;
+			cout << '\r' << buffer << endl;
+			cout << "\rServer: ";
+			
+			if (!strcmp(buffer, "/quit")) {
+				return 0;
+			}
+
+			//print out message for all others
+			for (int i = 0; i < master.fd_count; ++i) {
+				if (master.fd_array[i] != acceptSocket)
+					send(master.fd_array[i], buffer, byteCount, 0);
+			}
 		}
+	}
+	return 0;
+}
+
+DWORD WINAPI handle_send(LPVOID p_socket) {
+	SOCKET sendSocket = *((SOCKET*)p_socket);
+	string data = "";
+	while (true) {
+		std::getline(std::cin, data);
+		if (data.size() > 0) {
+			data = "Server: " + data;
+			for (int i = 0; i < master.fd_count; ++i) {
+				send(master.fd_array[i], data.c_str(), strlen(data.c_str()), 0);
+			}
+		}
+		cout << "Server: ";
 	}
 	return 0;
 }
