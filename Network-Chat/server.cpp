@@ -13,6 +13,8 @@ using namespace std;
 fd_set master;
 HANDLE mutex;
 
+//bool shutdown = false;
+
 DWORD WINAPI handle_connection(LPVOID p_socket);
 DWORD WINAPI handle_accept(LPVOID p_socket);
 DWORD WINAPI handle_send(LPVOID empty_param);
@@ -52,7 +54,7 @@ int main() {
 	//bind to socket
 	sockaddr_in service;
 	service.sin_family = AF_INET;
-	InetPton(AF_INET, _T("127.0.0.1"), &service.sin_addr.s_addr);
+	InetPton(AF_INET, _T("10.0.0.193"), &service.sin_addr.s_addr);
 	service.sin_port = htons(port);
 
 	if (bind(serverSocket, (SOCKADDR*)&service, sizeof(service)) == SOCKET_ERROR) {
@@ -71,13 +73,14 @@ int main() {
 	}
 	else {
 		cout << "listen() is OK, I'm waiting for connections..." << endl;
+		print_server();
 	}
 
 
 	mutex = CreateMutex(NULL, false, NULL);
 
 	if (mutex == NULL) {
-		cout << "Mutex create error: " << GetLastError() << endl;
+		cout << "\rMutex create error: " << GetLastError() << endl;
 		return 1;
 	}
 
@@ -204,6 +207,13 @@ DWORD WINAPI handle_send(LPVOID empty_param) {
 	while (true) {
 		std::getline(std::cin, data);
 		if (data.size() > 0) {
+			//if server is to be shutdown
+			WaitForSingleObject(mutex, INFINITE);
+			if (data == "/shutdown") {
+				ReleaseMutex(mutex);
+				return 0;
+			}
+
 			data = "Server: " + data;
 			WaitForSingleObject(mutex, INFINITE);
 			for (int i = 0; i < master.fd_count; ++i) {
